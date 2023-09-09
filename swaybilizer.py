@@ -8,8 +8,11 @@ OUT_NAME='out.mp4'
 WIDTH=1280
 HEIGHT=720
 FPS=60
-DECIMATE=2
+DECIMATE=1
 DEVICE='cuda'
+
+# MODEL = 'yolov8n-pose.pt' # Faster but less accurate
+MODEL = 'yolov8s-pose.pt'
 
 def get_displacements(preds, thresh=0.5, device='cpu'):
     pts = preds[0].keypoints.data.clone()
@@ -38,7 +41,7 @@ def shift(img, displacements, device='cpu'):
     return torch.stack(outs).squeeze(1)
 
 if __name__ == '__main__':
-    model = U.YOLO('yolov8s-pose.pt')
+    model = U.YOLO(MODEL)
 
     fname = OUT_NAME
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
