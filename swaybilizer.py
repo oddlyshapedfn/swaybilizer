@@ -9,8 +9,9 @@ WIDTH=1280
 HEIGHT=720
 FPS=60
 DECIMATE=2
+DEVICE='cuda'
 
-def get_displacements(preds, thresh=0.5, device='cuda'):
+def get_displacements(preds, thresh=0.5, device='cpu'):
     pts = preds[0].keypoints.data.clone()
     dims = preds[0].orig_shape
     imcenter = torch.tensor([dims[1] // 2, dims[0] // 2], device=device)
@@ -58,8 +59,8 @@ if __name__ == '__main__':
         preds = model(frame)[0]
         if preds.keypoints.data.shape[1] == 0:
             continue
-        v, d = get_displacements(preds)
-        shifted = shift(frame, d)
+        v, d = get_displacements(preds, device=DEVICE)
+        shifted = shift(frame, d, device=DEVICE)
         frame = shifted[0].permute(1,2,0).to(torch.uint8).cpu().numpy()
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         writer.write(frame)
