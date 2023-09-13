@@ -3,10 +3,11 @@ import torch
 import cv2
 import kornia.geometry as kgeom
 
-IN_NAME='tdw.m4v'
-OUT_NAME='out.mp4'
-WIDTH=1280
-HEIGHT=720
+IN_NAME='swayloop.mp4'
+OUT_NAME='swaybilized.mp4'
+RESIZE=4
+WIDTH=1176 // RESIZE
+HEIGHT=654 // RESIZE
 FPS=30
 DECIMATE=1
 DEVICE='cuda'
@@ -39,7 +40,6 @@ def get_transforms(preds, thresh=0.5, device='cpu'):
         # Calculate the angle from the line segment connecting the eyes
         slope = coords[1] - coords[2]
         angle = -1* torch.atan2(slope[1], slope[0])
-        print(angle*57.3)
 
         m0 = torch.tensor(
             [
@@ -82,6 +82,7 @@ def shift(img, transforms, device='cpu'):
     transforms = transforms.to(device)
     for d in transforms:
         shifted = kgeom.warp_perspective(img, d, img.shape[-2:], align_corners=True)
+
         outs.append(shifted)
     return torch.stack(outs).squeeze(1)
 
@@ -92,6 +93,7 @@ if __name__ == '__main__':
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     writer = cv2.VideoWriter(fname, fourcc, FPS, (WIDTH, HEIGHT))
 
+    last = None
     frame_count = 0
     reader = cv2.VideoCapture(IN_NAME)
     while writer.isOpened():
@@ -108,9 +110,23 @@ if __name__ == '__main__':
         if preds.keypoints.data.shape[1] == 0:
             continue
         d = get_transforms(preds, device=DEVICE)
+
+        # Weighted average the previous motion vector with the current
+        # to smooth out the motion
+        if last is None:
+            last = d
+            continue
+        else:
+            tmp = d
+            d = 0.50*last + 0.50*d
+            last = d
         shifted = shift(frame, d, device=DEVICE)
         frame = shifted[0].permute(1,2,0).to(torch.uint8).cpu().numpy()
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if RESIZE != 1:
+            frame = cv2.resize(frame, (WIDTH, HEIGHT))
+
+        print(frame.shape)
         writer.write(frame)
 
     writer.release()
