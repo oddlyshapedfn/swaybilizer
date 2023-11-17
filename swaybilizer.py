@@ -1,18 +1,11 @@
+import argparse
+
 import ultralytics as U
 import torch
 import cv2
 import kornia.geometry as kgeom
 
-IN_NAME='swayloop.mp4'
 OUT_NAME='swaybilized.mp4'
-RESIZE=4
-WIDTH=1176 // RESIZE
-HEIGHT=654 // RESIZE
-FPS=30
-DECIMATE=1
-DEVICE='cuda'
-
-# MODEL = 'yolov8n-pose.pt' # Faster but less accurate
 MODEL = 'yolov8s-pose.pt'
 
 def translation_matrix(dx, dy, device='cpu'):
@@ -87,29 +80,53 @@ def shift(img, transforms, device='cpu'):
     return torch.stack(outs).squeeze(1)
 
 if __name__ == '__main__':
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--video",
+        type=str,
+        help="Name of video file to swaybilize. Anything that cv2.VideoCapture can handle."
+    )
+    parser.add_argument(
+        "--decimate",
+        type=int,
+        default=1,
+        help="Skip this many frames between processing, eg decimate=4 processes every 4th frame and downsamples the video by 4x."
+    )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=30,
+        help="Set the output video to play at this framerate."
+    )
+    args = parser.parse_args()
+
     model = U.YOLO(MODEL)
 
-    fname = OUT_NAME
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter(fname, fourcc, FPS, (WIDTH, HEIGHT))
+    writer = None
 
     last = None
     frame_count = 0
-    reader = cv2.VideoCapture(IN_NAME)
-    while writer.isOpened():
+    reader = cv2.VideoCapture(args.video)
+    while True:
         print(frame_count)
         frame_count += 1
         ret, frame = reader.read()
         if frame is None:
             break
-        if frame_count % DECIMATE != 0:
+        if frame_count % args.decimate != 0:
             continue
+
+        h, w, c = frame.shape
+        if writer is None:
+            writer = cv2.VideoWriter(OUT_NAME, fourcc, args.fps, (w, h))
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         preds = model(frame)[0]
         if preds.keypoints.data.shape[1] == 0:
             continue
-        d = get_transforms(preds, device=DEVICE)
+        d = get_transforms(preds, device=device)
 
         # Weighted average the previous motion vector with the current
         # to smooth out the motion
@@ -118,16 +135,16 @@ if __name__ == '__main__':
             continue
         else:
             tmp = d
-            d = 0.50*last + 0.50*d
+            d = 0.00*last + 1.000*d
             last = d
-        shifted = shift(frame, d, device=DEVICE)
+        shifted = shift(frame, d, device=device)
         frame = shifted[0].permute(1,2,0).to(torch.uint8).cpu().numpy()
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        if RESIZE != 1:
-            frame = cv2.resize(frame, (WIDTH, HEIGHT))
 
         print(frame.shape)
         writer.write(frame)
 
-    writer.release()
-    reader.release()
+    if writer is not None:
+        writer.release()
+    if reader is not None:
+        reader.release()
